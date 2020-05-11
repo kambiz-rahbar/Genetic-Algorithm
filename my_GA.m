@@ -2,14 +2,18 @@ clc
 clear
 close all
 
+bGA = bin_GA;
+
 dimention_range = [-5 5; -5 5];
-pool_size = 30;
+pool_size = 100;
 
 maxgen = 100;
 
-pool = generate_pool(50, dimention_range);
+pool = generate_pool(pool_size, dimention_range);
 best_kromosom_in_each_gen = zeros(maxgen,2);
-best_fitness_in_each_gen = zeros(maxgen,1);
+best_fitness_stats_in_each_gen = zeros(maxgen,1);
+average_fitness_stats_in_each_gen = zeros(maxgen,1);
+worst_fitness_stats_in_each_gen = zeros(maxgen,1);
 
 for gen = 1:maxgen
     for k = 1:floor(pool_size/2)
@@ -22,11 +26,11 @@ for gen = 1:maxgen
         Y = pheno2geno(B, dimention_range);
         
         r = rand(1);
-        if r > 0.9
+        if r < bGA.mutation_probability
             X = bin_mutation(X);
             Y = bin_mutation(Y);
         end
-        [X_prim, Y_prim] = bin_crossover(X, Y);
+        [X_prim, Y_prim] = two_pint_bin_crossover(X, Y);
         
         A_prim = geno2pheno(X_prim, dimention_range);
         B_prim = geno2pheno(Y_prim, dimention_range);
@@ -38,19 +42,24 @@ for gen = 1:maxgen
             pool(selected_kromosoms(2),:) = B_prim;
         end
     end
-    [best_kromosom_in_each_gen(gen,:), best_fitness_in_each_gen(gen)] = find_best_kromosom(pool);
+    
+    [best_kromosom_in_each_gen(gen,:), fitness_stats] = fitness_statistics(pool);
+    best_fitness_stats_in_each_gen(gen) = fitness_stats(1);
+    average_fitness_stats_in_each_gen(gen) = fitness_stats(2);
+    worst_fitness_stats_in_each_gen(gen) = fitness_stats(3);
     
     figure(2);
-    plot(1:maxgen, log(best_fitness_in_each_gen));
+    plot(1:maxgen, log(best_fitness_stats_in_each_gen),'-g'); hold on;
+    plot(1:maxgen, log(average_fitness_stats_in_each_gen),'-b');
+    plot(1:maxgen, log(worst_fitness_stats_in_each_gen),'-r'); hold off;
     grid minor;
     xlabel('gen');
-    ylabel('fitness');
-    title('best kromosom')
+    ylabel('log(fitness)');
+    title('best [green], average [blue], worst [red]');
     drawnow;
-
 end
 
-[best_fitness, best_pos] = max(best_fitness_in_each_gen);
+[~, best_pos] = max(best_fitness_stats_in_each_gen(:,1));
 best_kromosom = best_kromosom_in_each_gen(best_pos, :);
 
 disp(best_kromosom);
@@ -60,7 +69,7 @@ disp(best_kromosom);
 
 
 
-function [best_kromosom, best_fitness] = find_best_kromosom(pool)
+function [best_kromosom, fitness_stats] = fitness_statistics(pool)
 pool_size = size(pool, 1);
 
 fitness_array = zeros(1, pool_size);
@@ -68,8 +77,15 @@ for k = 1:pool_size
     pheno_X = pool(k,:);
     fitness_array(k) = fitness(pheno_X);
 end
-[best_fitness, best_pos] = max(fitness_array);
+
+fitness_stats = zeros(1,3);
+
+[fitness_stats(1), best_pos] = max(fitness_array);
 best_kromosom = pool(best_pos, :);
+
+fitness_stats(2) = mean(fitness_array);
+
+fitness_stats(3) = min(fitness_array);
 end
 
 function [selected_kromosoms] = selection(pool,show_fitness)
@@ -90,9 +106,13 @@ r = rand(2,1);
 
 if show_fitness
     figure(show_fitness);
-    clf;
-    bar(fitness_cdf);
+    plot(log(fitness_cdf));
+    grid minor;
+    xlabel('kromosom');
+    ylabel('log(fitness)');
+    title('kromosom CDF in each selection');
     drawnow;
+    pause(0.01);
 end
 end
 
@@ -121,49 +141,49 @@ evaluate_value = z;
 end
 
 function [geno_X] = pheno2geno(pheno_X, pheno_range)
-GA = bin_GA;
+bGA = bin_GA;
 
 % normalized in dec length
-max_dec = 2^GA.code_length-1;
+max_dec = 2^bGA.code_length-1;
 pheno_min_in_range = pheno_range(:,1)';
 pheno_range_length = pheno_range(:,2)' - pheno_range(:,1)';
 normalized_pheno_X = round( (pheno_X - pheno_min_in_range) ./ pheno_range_length * max_dec);
 
 pheno_length = length(normalized_pheno_X);
 
-geno_X = blanks(GA.code_length*pheno_length);
+geno_X = blanks(bGA.code_length*pheno_length);
 for i = 1:length(normalized_pheno_X)
-    geno_X((i-1)*GA.code_length + 1:i*GA.code_length) = bin_coding(normalized_pheno_X(i));
+    geno_X((i-1)*bGA.code_length + 1:i*bGA.code_length) = bin_coding(normalized_pheno_X(i));
 end
 end
 
 function [pheno_X] = geno2pheno(geno_X, pheno_range)
-GA = bin_GA;
-pheno_length = length(geno_X)/GA.code_length;
+bGA = bin_GA;
+pheno_length = length(geno_X)/bGA.code_length;
 
 pheno_X = zeros(1,pheno_length);
 for i = 1:pheno_length
-    pheno_X(i) = bin_decoding(geno_X((i-1)*GA.code_length + 1:i*GA.code_length));
+    pheno_X(i) = bin_decoding(geno_X((i-1)*bGA.code_length + 1:i*bGA.code_length));
 end
 
 % retrieve normal length
-max_dec = 2^GA.code_length - 1;
+max_dec = 2^bGA.code_length - 1;
 pheno_min_in_range = pheno_range(:,1)';
 pheno_range_length = pheno_range(:,2)' - pheno_range(:,1)';
 pheno_X = pheno_X/max_dec.*pheno_range_length+pheno_min_in_range;
 end
 
-function [X_prim, Y_prim] = bin_crossover(X, Y)
-len_X = length(X)-1;
-k = 1+round(len_X * rand(1,2));
+function [X_prim, Y_prim] = two_pint_bin_crossover(X, Y)
+len_X = length(X);
+k = 1+round((len_X-1) * rand(1,2));
 k = sort(k);
 X_prim = [X(1:k(1)) Y(k(1)+1:k(2)) X(k(2)+1:end)];
 Y_prim = [Y(1:k(1)) X(k(1)+1:k(2)) Y(k(2)+1:end)];
 end
 
 function [X] = bin_mutation(X)
-len_X = length(X)-1;
-k = 1+round(len_X * rand(1));
+len_X = length(X);
+k = 1+round((len_X-1) * rand(1));
 if X(k) == '1'
     X(k) = '0';
 else
@@ -172,11 +192,14 @@ end
 end
 
 function [bin_num] = bin_coding(dec_num)
-GA = bin_GA;
+bGA = bin_GA;
 
-bin_num = dec2bin(dec_num, GA.code_length);
+bin_num = dec2bin(dec_num, bGA.code_length);
+
 len_bin_num = length(bin_num);
-bin_num = bin_num(max(len_bin_num-GA.code_length, 0) + 1 : end);
+if len_bin_num > bGA.code_length
+    bin_num = dec2bin(2^bGA.code_length-1);
+end
 end
 
 function [dec_num] = bin_decoding(bin_num)
